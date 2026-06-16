@@ -1,0 +1,49 @@
+# ============================================
+# STEP 1 - Install and load all packages
+# ============================================
+
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("readr")
+install.packages("ggpubr")
+
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("IlluminaHumanMethylation450kanno.ilmn12.hg19")
+
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(ggpubr)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+
+
+# ============================================
+# STEP 2 - Get ATM probe IDs from annotation
+# ============================================
+
+annotation <- getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+
+ATM_probes <- annotation[
+  grepl("ATM", annotation$UCSC_RefGene_Name),
+  c("chr", "pos", "UCSC_RefGene_Name",
+    "UCSC_RefGene_Group", "Relation_to_Island")
+]
+
+print(ATM_probes)
+
+write_csv(
+  as.data.frame(ATM_probes),
+  "ATM_probe_list.csv"
+)
+
+cat("Number of ATM probes found:", nrow(ATM_probes), "\n")
+
+
+# ============================================
+# STEP 3 - Save session
+# ============================================
+
+save.image("breast_cancer_project.RData")
+cat("Session saved\n")
