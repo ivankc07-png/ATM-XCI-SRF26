@@ -1,0 +1,231 @@
+# ============================================
+# STEP 1 - Install and load all packages
+# ============================================
+
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("readr")
+install.packages("ggpubr")
+
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(ggpubr)
+
+
+# ============================================
+# STEP 2 - Confirm the file exists before loading
+# ============================================
+
+file.exists("/Users/ivancarrier/Downloads/FH_MYC_CNA.txt")
+# Must return TRUE before continuing
+# If FALSE, update the path below to match your actual file location
+
+
+# ============================================
+# STEP 3 - Load the file (no renaming yet)
+# ============================================
+
+myc_data <- read_tsv("/Users/ivancarrier/Downloads/FH_MYC_CNA.txt")
+
+# Confirm it loaded
+exists("myc_data")
+dim(myc_data)
+
+
+# ============================================
+# STEP 4 - Confirm exact column names
+# ============================================
+
+colnames(myc_data)
+# Should print:
+# "Sample Id"
+# "ATM: Putative copy-number alterations from GISTIC"
+# "MYC: mRNA expression (RNA Seq V2 RSEM) (log2(value + 1))"
+# "Mutations"
+# "Copy Number Alterations"
+
+
+# ============================================
+# STEP 5 - Rename columns (separate step, easier to debug)
+# ============================================
+
+myc_data <- myc_data %>%
+  rename(
+    ATM_CNA = `ATM: Putative copy-number alterations from GISTIC`,
+    MYC_raw = `MYC: mRNA expression (RNA Seq V2 RSEM) (log2(value + 1))`
+  )
+
+# Confirm rename worked
+colnames(myc_data)
+
+
+# ============================================
+# STEP 6 - Filter out missing values
+# ============================================
+
+myc_data <- myc_data %>%
+  filter(!is.na(ATM_CNA), !is.na(MYC_raw))
+
+dim(myc_data)
+
+
+# ============================================
+# STEP 7 - Apply log2(value + 1) transformation
+# (raw values in this file are NOT pre-transformed,
+# despite the column header text)
+# ============================================
+
+myc_data <- myc_data %>%
+  mutate(MYC_log2 = log2(MYC_raw + 1))
+
+head(myc_data)
+
+
+# ============================================
+# STEP 8 - Set factor levels and colors
+# ============================================
+
+myc_data$ATM_CNA <- factor(myc_data$ATM_CNA,
+                            levels = c("Deep Deletion",
+                                       "Shallow Deletion",
+                                       "Diploid",
+                                       "Gain",
+                                       "Amplification"))
+
+cna_colors <- c(
+  "Deep Deletion"    = "#0000FF",
+  "Shallow Deletion" = "#00BCD4",
+  "Diploid"          = "#808080",
+  "Gain"             = "#FF69B4",
+  "Amplification"    = "#FF0000"
+)
+
+
+# ============================================
+# STEP 9 - Define comparisons
+# ============================================
+
+comparisons <- list(
+  c("Diploid", "Deep Deletion"),
+  c("Diploid", "Shallow Deletion"),
+  c("Diploid", "Gain"),
+  c("Diploid", "Amplification")
+)
+
+
+# ============================================
+# STEP 10 - Build the plot
+# ============================================
+
+p_myc <- ggplot(myc_data, aes(x = ATM_CNA, y = MYC_log2, color = ATM_CNA)) +
+
+  geom_boxplot(
+    outlier.shape = NA,
+    fill = "lightgray",
+    color = "black",
+    width = 0.5
+  ) +
+
+  geom_jitter(
+    shape = 1,
+    size = 1.8,
+    width = 0.25,
+    alpha = 0.7
+  ) +
+
+  scale_color_manual(values = cna_colors) +
+
+  stat_compare_means(
+    comparisons = comparisons,
+    method = "wilcox.test",
+    label = "p.format"
+  ) +
+
+  labs(
+    x = "ATM: Putative copy-number alterations from GISTIC",
+    y = "MYC: mRNA expression (RNA Seq V2 RSEM) (log2(value + 1))",
+    title = "ATM Copy Number vs MYC mRNA Expression",
+    subtitle = paste0("TCGA-BRCA RNA-seq — ", nrow(myc_data), " samples")
+  ) +
+
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_text(size = 10),
+    plot.title = element_text(size = 12, face = "bold")
+  )
+
+print(p_myc)
+
+
+# ============================================
+# STEP 11 - Save the plot
+# ============================================
+
+ggsave(
+  "MYC_vs_ATM_TCGA_pvalues.png",
+  plot = p_myc,
+  width = 8,
+  height = 7,
+  dpi = 300
+)
+
+ggsave(
+  "MYC_vs_ATM_TCGA_pvalues.pdf",
+  plot = p_myc,
+  width = 8,
+  height = 7
+)
+
+
+# ============================================
+# STEP 12 - Get exact p-values printed to console
+# ============================================
+
+MYC_diploid       <- myc_data %>% filter(ATM_CNA == "Diploid")          %>% pull(MYC_log2)
+MYC_shallow       <- myc_data %>% filter(ATM_CNA == "Shallow Deletion")  %>% pull(MYC_log2)
+MYC_deep          <- myc_data %>% filter(ATM_CNA == "Deep Deletion")     %>% pull(MYC_log2)
+MYC_gain          <- myc_data %>% filter(ATM_CNA == "Gain")              %>% pull(MYC_log2)
+MYC_amplification <- myc_data %>% filter(ATM_CNA == "Amplification")     %>% pull(MYC_log2)
+
+cat("========== MYC P-VALUES (vs ATM Diploid) ==========\n")
+cat("Diploid vs Deep Deletion:     p =", wilcox.test(MYC_diploid, MYC_deep)$p.value, "\n")
+cat("Diploid vs Shallow Deletion:  p =", wilcox.test(MYC_diploid, MYC_shallow)$p.value, "\n")
+cat("Diploid vs Gain:              p =", wilcox.test(MYC_diploid, MYC_gain)$p.value, "\n")
+cat("Diploid vs Amplification:     p =", wilcox.test(MYC_diploid, MYC_amplification)$p.value, "\n")
+
+
+# ============================================
+# STEP 13 - Save session
+# ============================================
+
+write_csv(myc_data, "MYC_ATM_TCGA_data.csv")
+save.image("breast_cancer_project_TCGA_MYC.RData")
+cat("MYC analysis saved\n")
+# ============================================
+# Save the MYC plot as PNG (for presentations)
+# ============================================
+
+ggsave(
+  "MYC_vs_ATM_TCGA_pvalues.png",
+  plot = p_myc,
+  width = 8,
+  height = 7,
+  dpi = 300
+)
+
+
+# ============================================
+# Save the MYC plot as PDF (for publications)
+# ============================================
+
+ggsave(
+  "MYC_vs_ATM_TCGA_pvalues.pdf",
+  plot = p_myc,
+  width = 8,
+  height = 7
+)
+
+cat("Plot saved successfully\n")
