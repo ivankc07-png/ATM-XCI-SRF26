@@ -1,0 +1,207 @@
+# ============================================
+# STEP 1 - Install and load all packages
+# ============================================
+
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("readr")
+install.packages("ggpubr")
+
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(ggpubr)
+
+
+# ============================================
+# STEP 2 - Confirm the file exists before loading
+# ============================================
+
+file.exists("/Users/ivancarrier/Downloads/FHCSMD1CNA.txt")
+# Must return TRUE before continuing
+
+
+# ============================================
+# STEP 3 - Load the file (no renaming yet)
+# ============================================
+
+csmd1_data <- read_tsv("/Users/ivancarrier/Downloads/FHCSMD1CNA.txt")
+
+# Confirm it loaded
+exists("csmd1_data")
+dim(csmd1_data)
+
+
+# ============================================
+# STEP 4 - Confirm exact column names
+# ============================================
+
+colnames(csmd1_data)
+# Should print:
+# "Sample Id"
+# "ATM: Putative copy-number alterations from GISTIC"
+# "CSMD1: mRNA expression (RNA Seq V2 RSEM) (log2(value + 1))"
+# "Mutations"
+# "Copy Number Alterations"
+
+
+# ============================================
+# STEP 5 - Rename columns (separate step, easier to debug)
+# ============================================
+
+csmd1_data <- csmd1_data %>%
+  rename(
+    ATM_CNA   = `ATM: Putative copy-number alterations from GISTIC`,
+    CSMD1_raw = `CSMD1: mRNA expression (RNA Seq V2 RSEM) (log2(value + 1))`
+  )
+
+# Confirm rename worked
+colnames(csmd1_data)
+
+
+# ============================================
+# STEP 6 - Filter out missing values
+# ============================================
+
+csmd1_data <- csmd1_data %>%
+  filter(!is.na(ATM_CNA), !is.na(CSMD1_raw))
+
+dim(csmd1_data)
+
+
+# ============================================
+# STEP 7 - Apply log2(value + 1) transformation
+# (raw values in this file are NOT pre-transformed,
+# despite the column header text)
+# ============================================
+
+csmd1_data <- csmd1_data %>%
+  mutate(CSMD1_log2 = log2(CSMD1_raw + 1))
+
+head(csmd1_data)
+
+
+# ============================================
+# STEP 8 - Set factor levels and colors
+# ============================================
+
+csmd1_data$ATM_CNA <- factor(csmd1_data$ATM_CNA,
+                              levels = c("Deep Deletion",
+                                         "Shallow Deletion",
+                                         "Diploid",
+                                         "Gain",
+                                         "Amplification"))
+
+cna_colors <- c(
+  "Deep Deletion"    = "#0000FF",
+  "Shallow Deletion" = "#00BCD4",
+  "Diploid"          = "#808080",
+  "Gain"             = "#FF69B4",
+  "Amplification"    = "#FF0000"
+)
+
+
+# ============================================
+# STEP 9 - Define comparisons
+# ============================================
+
+comparisons <- list(
+  c("Diploid", "Deep Deletion"),
+  c("Diploid", "Shallow Deletion"),
+  c("Diploid", "Gain"),
+  c("Diploid", "Amplification")
+)
+
+
+# ============================================
+# STEP 10 - Build the plot
+# ============================================
+
+p_csmd1_tcga <- ggplot(csmd1_data, aes(x = ATM_CNA, y = CSMD1_log2, color = ATM_CNA)) +
+
+  geom_boxplot(
+    outlier.shape = NA,
+    fill = "lightgray",
+    color = "black",
+    width = 0.5
+  ) +
+
+  geom_jitter(
+    shape = 1,
+    size = 1.8,
+    width = 0.25,
+    alpha = 0.7
+  ) +
+
+  scale_color_manual(values = cna_colors) +
+
+  stat_compare_means(
+    comparisons = comparisons,
+    method = "wilcox.test",
+    label = "p.format"
+  ) +
+
+  labs(
+    x = "ATM: Putative copy-number alterations from GISTIC",
+    y = "CSMD1: mRNA expression (RNA Seq V2 RSEM) (log2(value + 1))",
+    title = "ATM Copy Number vs CSMD1 mRNA Expression",
+    subtitle = paste0("TCGA-BRCA RNA-seq — ", nrow(csmd1_data), " samples")
+  ) +
+
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_text(size = 10),
+    plot.title = element_text(size = 12, face = "bold")
+  )
+
+print(p_csmd1_tcga)
+
+
+# ============================================
+# STEP 11 - Save the plot image
+# ============================================
+
+ggsave(
+  "CSMD1_vs_ATM_TCGA_pvalues.png",
+  plot = p_csmd1_tcga,
+  width = 8,
+  height = 7,
+  dpi = 300
+)
+
+ggsave(
+  "CSMD1_vs_ATM_TCGA_pvalues.pdf",
+  plot = p_csmd1_tcga,
+  width = 8,
+  height = 7
+)
+
+cat("Plot saved successfully\n")
+
+
+# ============================================
+# STEP 12 - Get exact p-values printed to console
+# ============================================
+
+CSMD1_diploid_tcga       <- csmd1_data %>% filter(ATM_CNA == "Diploid")          %>% pull(CSMD1_log2)
+CSMD1_shallow_tcga       <- csmd1_data %>% filter(ATM_CNA == "Shallow Deletion")  %>% pull(CSMD1_log2)
+CSMD1_deep_tcga          <- csmd1_data %>% filter(ATM_CNA == "Deep Deletion")     %>% pull(CSMD1_log2)
+CSMD1_gain_tcga          <- csmd1_data %>% filter(ATM_CNA == "Gain")              %>% pull(CSMD1_log2)
+CSMD1_amplification_tcga <- csmd1_data %>% filter(ATM_CNA == "Amplification")     %>% pull(CSMD1_log2)
+
+cat("========== CSMD1 P-VALUES (vs ATM Diploid) ==========\n")
+cat("Diploid vs Deep Deletion:     p =", wilcox.test(CSMD1_diploid_tcga, CSMD1_deep_tcga)$p.value, "\n")
+cat("Diploid vs Shallow Deletion:  p =", wilcox.test(CSMD1_diploid_tcga, CSMD1_shallow_tcga)$p.value, "\n")
+cat("Diploid vs Gain:              p =", wilcox.test(CSMD1_diploid_tcga, CSMD1_gain_tcga)$p.value, "\n")
+cat("Diploid vs Amplification:     p =", wilcox.test(CSMD1_diploid_tcga, CSMD1_amplification_tcga)$p.value, "\n")
+
+
+# ============================================
+# STEP 13 - Save session
+# ============================================
+
+write_csv(csmd1_data, "CSMD1_ATM_TCGA_data.csv")
+save.image("breast_cancer_project_TCGA_CSMD1.RData")
+cat("CSMD1 analysis saved\n")
