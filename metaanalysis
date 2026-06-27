@@ -1,0 +1,842 @@
+# ============================================
+> # STEP 2 - Set your base folder path
+> # UPDATE this to wherever you unzipped SRFcopy
+> # ============================================
+> 
+> base_path <- "/Users/ivancarrier/Desktop/SRFcopy"
+> 
+> 
+> # ============================================
+> # STEP 3 - Loader function for CNA files
+> # (handles METABRIC microarray vs FH RNA-seq
+> # log2 transformation differences automatically)
+> # ============================================
+> 
+> load_cna_file <- function(filepath, gene_name, dataset_label) {
++   
++   data <- read_tsv(filepath, show_col_types = FALSE)
++   
++   atm_col  <- names(data)[grepl("^ATM:", names(data))][1]
++   gene_col <- names(data)[grepl(paste0("^", gene_name, ":"), names(data))][1]
++   
++   data <- data %>%
++     rename(ATM_CNA = !!atm_col, gene_raw = !!gene_col) %>%
++     filter(!is.na(ATM_CNA), !is.na(gene_raw))
++   
++   # METABRIC microarray values are already log2 - don't re-transform
++   # FH RNA-seq RSEM values are raw - need log2(value+1)
++   if (dataset_label == "FH") {
++     data <- data %>% mutate(gene_log2 = log2(gene_raw + 1))
++   } else {
++     data <- data %>% mutate(gene_log2 = gene_raw)
++   }
++   
++   data$ATM_CNA <- factor(data$ATM_CNA,
++                           levels = c("Deep Deletion", "Shallow Deletion",
++                                      "Diploid", "Gain", "Amplification"))
++   data$gene <- gene_name
++   data$dataset <- dataset_label
++   
++   return(data)
++ }
+> 
+> 
+> # ============================================
+> # STEP 4 - Load all 6 CNA files
+> # ============================================
+> 
+> rtel1_mb_cna <- load_cna_file(file.path(base_path, "METABRIC/MBdataCNA/mbRTEL1cna.txt"), "RTEL1", "METABRIC")
+                                                                                                                                                                                                                   
+> csmd1_mb_cna <- load_cna_file(file.path(base_path, "METABRIC/MBdataCNA/mbCSMD1cna.txt"), "CSMD1", "METABRIC")
+                                                                                                                                                                                                                   
+> myc_mb_cna   <- load_cna_file(file.path(base_path, "METABRIC/MBdataCNA/mbMYCcna.txt"),   "MYC",   "METABRIC")
+                                                                                                                                                                                                                   
+> 
+> rtel1_fh_cna <- load_cna_file(file.path(base_path, "FH/FHdataCNA/FHRTEL1CNA.txt"), "RTEL1", "FH")
+                                                                                                                                                                                                                   
+> csmd1_fh_cna <- load_cna_file(file.path(base_path, "FH/FHdataCNA/FHCSMD1CNA.txt"), "CSMD1", "FH")
+                                                                                                                                                                                                                   
+> myc_fh_cna   <- load_cna_file(file.path(base_path, "FH/FHdataCNA/FHMYCCNA.txt"),   "MYC",   "FH")
+                                                                                                                                                                                                                   
+> 
+> # Quick sanity check
+> cat("RTEL1 METABRIC rows:", nrow(rtel1_mb_cna), "| FH rows:", nrow(rtel1_fh_cna), "\n")
+RTEL1 METABRIC rows: 1866 | FH rows: 960 
+> cat("CSMD1 METABRIC rows:", nrow(csmd1_mb_cna), "| FH rows:", nrow(csmd1_fh_cna), "\n")
+CSMD1 METABRIC rows: 1866 | FH rows: 960 
+> cat("MYC METABRIC rows:",   nrow(myc_mb_cna),   "| FH rows:", nrow(myc_fh_cna), "\n")
+MYC METABRIC rows: 1866 | FH rows: 960 
+> 
+> 
+> # ============================================
+> # STEP 5 - Calculate Cohen's d effect sizes
+> # (Diploid vs Amplification) for each gene,
+> # each dataset
+> # ============================================
+> 
+> calc_effect_size <- function(data) {
++   diploid_vals      <- data %>% filter(ATM_CNA == "Diploid")       %>% pull(gene_log2)
++   amplification_vals <- data %>% filter(ATM_CNA == "Amplification") %>% pull(gene_log2)
++   cohen.d(diploid_vals, amplification_vals)
++ }
+> 
+> effect_RTEL1_MB <- calc_effect_size(rtel1_mb_cna)
+> effect_RTEL1_FH <- calc_effect_size(rtel1_fh_cna)
+> effect_CSMD1_MB <- calc_effect_size(csmd1_mb_cna)
+> effect_CSMD1_FH <- calc_effect_size(csmd1_fh_cna)
+> effect_MYC_MB   <- calc_effect_size(myc_mb_cna)
+> effect_MYC_FH   <- calc_effect_size(myc_fh_cna)
+> 
+> print(effect_RTEL1_MB); print(effect_RTEL1_FH)
+
+Cohen's d
+
+d estimate: -0.8791019 (large)
+95 percent confidence interval:
+     lower      upper 
+-1.8628116  0.1046078 
+
+
+Cohen's d
+
+d estimate: 0.6495389 (medium)
+95 percent confidence interval:
+    lower     upper 
+-0.236080  1.535158 
+
+> print(effect_CSMD1_MB); print(effect_CSMD1_FH)
+
+Cohen's d
+
+d estimate: 0.8148137 (large)
+95 percent confidence interval:
+     lower      upper 
+-0.1687945  1.7984219 
+
+
+Cohen's d
+
+d estimate: -0.1695123 (negligible)
+95 percent confidence interval:
+     lower      upper 
+-1.0540896  0.7150651 
+
+> print(effect_MYC_MB);   print(effect_MYC_FH)
+
+Cohen's d
+
+d estimate: -0.8567575 (large)
+95 percent confidence interval:
+    lower     upper 
+-1.840431  0.126916 
+
+
+Cohen's d
+
+d estimate: -0.4420265 (small)
+95 percent confidence interval:
+     lower      upper 
+-1.3270455  0.4429925 
+
+> 
+> 
+> # ============================================
+> # STEP 6 - Build master effect size table
+> # ============================================
+> 
+> meta_input_cna <- data.frame(
++   gene = rep(c("RTEL1", "CSMD1", "MYC"), each = 2),
++   study = rep(c("METABRIC", "TCGA-FH"), times = 3),
++   effect_size = c(
++     effect_RTEL1_MB$estimate, effect_RTEL1_FH$estimate,
++     effect_CSMD1_MB$estimate, effect_CSMD1_FH$estimate,
++     effect_MYC_MB$estimate,   effect_MYC_FH$estimate
++   ),
++   ci_lower = c(
++     effect_RTEL1_MB$conf.int[1], effect_RTEL1_FH$conf.int[1],
++     effect_CSMD1_MB$conf.int[1], effect_CSMD1_FH$conf.int[1],
++     effect_MYC_MB$conf.int[1],   effect_MYC_FH$conf.int[1]
++   ),
++   ci_upper = c(
++     effect_RTEL1_MB$conf.int[2], effect_RTEL1_FH$conf.int[2],
++     effect_CSMD1_MB$conf.int[2], effect_CSMD1_FH$conf.int[2],
++     effect_MYC_MB$conf.int[2],   effect_MYC_FH$conf.int[2]
++   )
++ ) %>%
++   mutate(se = (ci_upper - ci_lower) / 3.92)
+> 
+> print(meta_input_cna)
+   gene    study effect_size   ci_lower  ci_upper        se
+1 RTEL1 METABRIC  -0.8791019 -1.8628116 0.1046078 0.5018927
+2 RTEL1  TCGA-FH   0.6495389 -0.2360800 1.5351578 0.4518464
+3 CSMD1 METABRIC   0.8148137 -0.1687945 1.7984219 0.5018409
+4 CSMD1  TCGA-FH  -0.1695123 -1.0540896 0.7150651 0.4513150
+5   MYC METABRIC  -0.8567575 -1.8404311 0.1269160 0.5018743
+6   MYC  TCGA-FH  -0.4420265 -1.3270455 0.4429925 0.4515403
+> write_csv(meta_input_cna, "meta_input_CNA_effect_sizes.csv")
+                                                                                                                                                                                                                   
+> 
+> 
+> # ============================================
+> # STEP 7 - Run meta-analysis per gene
+> # ============================================
+> 
+> run_gene_meta <- function(data, gene_name) {
++   subset_data <- data %>% filter(gene == gene_name)
++   result <- metagen(
++     TE = subset_data$effect_size,
++     seTE = subset_data$se,
++     studlab = subset_data$study,
++     sm = "SMD"
++   )
++   cat("\n========== ", gene_name, " (CNA: Diploid vs Amplification) ==========\n")
++   print(summary(result))
++   return(result)
++ }
+> 
+> meta_RTEL1_cna <- run_gene_meta(meta_input_cna, "RTEL1")
+
+==========  RTEL1  (CNA: Diploid vs Amplification) ==========
+             SMD            95% CI %W(common) %W(random)
+METABRIC -0.8791 [-1.8628; 0.1046]       44.8       49.0
+TCGA-FH   0.6495 [-0.2361; 1.5351]       55.2       51.0
+
+Number of studies: k = 2
+
+                         SMD            95% CI     z p-value
+Common effect model  -0.0348 [-0.6930; 0.6234] -0.10  0.9175
+Random effects model -0.0992 [-1.5969; 1.3986] -0.13  0.8967
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0.9403 [0.0045; >100.0000]; tau = 0.9697 [0.0674; >10.0000]
+ I^2 = 80.5% [16.4%; 95.4%]; H = 2.26 [1.09; 4.68]
+
+Test of heterogeneity:
+    Q d.f. p-value
+ 5.12    1  0.0236
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+> meta_CSMD1_cna <- run_gene_meta(meta_input_cna, "CSMD1")
+
+==========  CSMD1  (CNA: Diploid vs Amplification) ==========
+             SMD            95% CI %W(common) %W(random)
+METABRIC  0.8148 [-0.1688; 1.7984]       44.7       47.5
+TCGA-FH  -0.1695 [-1.0541; 0.7150]       55.3       52.5
+
+Number of studies: k = 2
+
+                        SMD            95% CI    z p-value
+Common effect model  0.2706 [-0.3871; 0.9283] 0.81  0.4200
+Random effects model 0.2982 [-0.6652; 1.2616] 0.61  0.5441
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0.2567 [0.0000; >100.0000]; tau = 0.5066 [0.0000; >10.0000]
+ I^2 = 53.0% [0.0%; 88.3%]; H = 1.46 [1.00; 2.93]
+
+Test of heterogeneity:
+    Q d.f. p-value
+ 2.13    1  0.1447
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+> meta_MYC_cna   <- run_gene_meta(meta_input_cna, "MYC")
+
+==========  MYC  (CNA: Diploid vs Amplification) ==========
+             SMD            95% CI %W(common) %W(random)
+METABRIC -0.8568 [-1.8404; 0.1269]       44.7       44.7
+TCGA-FH  -0.4420 [-1.3270; 0.4430]       55.3       55.3
+
+Number of studies: k = 2
+
+                         SMD            95% CI     z p-value
+Common effect model  -0.6276 [-1.2855; 0.0304] -1.87  0.0615
+Random effects model -0.6276 [-1.2855; 0.0304] -1.87  0.0615
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0 [0.0000; 87.3433]; tau = 0 [0.0000; 9.3458]
+ I^2 = 0.0%; H = 1.00
+
+Test of heterogeneity:
+    Q d.f. p-value
+ 0.38    1  0.5390
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+> 
+> 
+> # ============================================
+> # STEP 8 - Forest plots
+> # ============================================
+> 
+> png("RTEL1_CNA_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_RTEL1_cna); dev.off()
+quartz_off_screen 
+                2 
+> 
+> png("CSMD1_CNA_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_CSMD1_cna); dev.off()
+quartz_off_screen 
+                2 
+> 
+> png("MYC_CNA_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_MYC_cna); dev.off()
+quartz_off_screen 
+                2 
+> 
+> 
+> # ============================================
+> # STEP 9 - Final CNA summary table
+> # ============================================
+> 
+> extract_summary <- function(meta_result, gene_name, metric_name) {
++   data.frame(
++     gene = gene_name, metric = metric_name,
++     pooled_effect = meta_result$TE.random,
++     ci_lower = meta_result$lower.random,
++     ci_upper = meta_result$upper.random,
++     p_value = meta_result$pval.random,
++     I_squared = meta_result$I2,
++     heterogeneity_p = meta_result$pval.Q
++   )
++ }
+> 
+> cna_summary <- bind_rows(
++   extract_summary(meta_RTEL1_cna, "RTEL1", "CNA"),
++   extract_summary(meta_CSMD1_cna, "CSMD1", "CNA"),
++   extract_summary(meta_MYC_cna,   "MYC",   "CNA")
++ )
+> print(cna_summary)
+   gene metric pooled_effect   ci_lower   ci_upper   p_value I_squared heterogeneity_p
+1 RTEL1    CNA    -0.0991692 -1.5968971 1.39855871 0.8967442 0.8048303      0.02360063
+2 CSMD1    CNA     0.2981877 -0.6652417 1.26161715 0.5441020 0.5298476      0.14472658
+3   MYC    CNA    -0.6275578 -1.2854707 0.03035503 0.0615485 0.0000000      0.53900321
+> write_csv(cna_summary, "meta_summary_CNA.csv")
+                                                                                                                                                                                                                   
+> 
+> 
+> # ============================================
+> # STEP 10 - Co-expression files (ATM mRNA vs gene mRNA)
+> # This metric is CONTINUOUS, not categorical -
+> # use Pearson/Spearman correlation, not Cohen's d
+> # ============================================
+> 
+> load_co_file <- function(filepath, gene_name, dataset_label) {
++   
++   data <- read_tsv(filepath, show_col_types = FALSE)
++   
++   atm_col  <- names(data)[grepl("^ATM", names(data))][1]
++   gene_col <- names(data)[grepl(paste0("^", gene_name), names(data))][1]
++   
++   data <- data %>%
++     rename(ATM_mRNA = !!atm_col, gene_mRNA_raw = !!gene_col) %>%
++     filter(!is.na(ATM_mRNA), !is.na(gene_mRNA_raw))
++   
++   if (dataset_label == "FH") {
++     data <- data %>%
++       mutate(ATM_log2 = log2(ATM_mRNA + 1),
++              gene_log2 = log2(gene_mRNA_raw + 1))
++   } else {
++     data <- data %>%
++       mutate(ATM_log2 = ATM_mRNA,
++              gene_log2 = gene_mRNA_raw)
++   }
++   
++   data$gene <- gene_name
++   data$dataset <- dataset_label
++   return(data)
++ }
+> 
+> rtel1_mb_co <- load_co_file(file.path(base_path, "METABRIC/MBdataCO/mbRTEL1coexpression.txt"), "RTEL1", "METABRIC")
+                                                                                                                                                                                                                   
+> csmd1_mb_co <- load_co_file(file.path(base_path, "METABRIC/MBdataCO/mbCSMD1coexpression.txt"), "CSMD1", "METABRIC")
+                                                                                                                                                                                                                   
+> myc_mb_co   <- load_co_file(file.path(base_path, "METABRIC/MBdataCO/mbMYCcoexpression.txt"),   "MYC",   "METABRIC")
+                                                                                                                                                                                                                   
+> 
+> rtel1_fh_co <- load_co_file(file.path(base_path, "FH/FHdataCO/fhRTEL1coexpression.txt"), "RTEL1", "FH")
+                                                                                                                                                                                                                   
+> csmd1_fh_co <- load_co_file(file.path(base_path, "FH/FHdataCO/fhCSMD1coexpression.txt"), "CSMD1", "FH")
+                                                                                                                                                                                                                   
+> myc_fh_co   <- load_co_file(file.path(base_path, "FH/FHdataCO/fhMYCcoexpression.txt"),   "MYC",   "FH")
+                                                                                                                                                                                                                   
+> 
+> # Calculate Pearson correlation + Fisher z-transform (the standard
+> # effect size for meta-analyzing correlations) for each
+> calc_corr_effect <- function(data) {
++   cor.test(data$ATM_log2, data$gene_log2, method = "pearson")
++ }
+> 
+> corr_RTEL1_MB <- calc_corr_effect(rtel1_mb_co)
+> corr_RTEL1_FH <- calc_corr_effect(rtel1_fh_co)
+> corr_CSMD1_MB <- calc_corr_effect(csmd1_mb_co)
+> corr_CSMD1_FH <- calc_corr_effect(csmd1_fh_co)
+> corr_MYC_MB   <- calc_corr_effect(myc_mb_co)
+> corr_MYC_FH   <- calc_corr_effect(myc_fh_co)
+> 
+> print(corr_RTEL1_MB); print(corr_RTEL1_FH)
+
+	Pearson's product-moment correlation
+
+data:  data$ATM_log2 and data$gene_log2
+t = -1.4734, df = 1864, p-value = 0.1408
+alternative hypothesis: true correlation is not equal to 0
+95 percent confidence interval:
+ -0.07936190  0.01128831
+sample estimates:
+        cor 
+-0.03410694 
+
+
+	Pearson's product-moment correlation
+
+data:  data$ATM_log2 and data$gene_log2
+t = -6.1287, df = 958, p-value = 1.293e-09
+alternative hypothesis: true correlation is not equal to 0
+95 percent confidence interval:
+ -0.2543835 -0.1325954
+sample estimates:
+       cor 
+-0.1942378 
+
+> print(corr_CSMD1_MB); print(corr_CSMD1_FH)
+
+	Pearson's product-moment correlation
+
+data:  data$ATM_log2 and data$gene_log2
+t = -2.6486, df = 1864, p-value = 0.008151
+alternative hypothesis: true correlation is not equal to 0
+95 percent confidence interval:
+ -0.10631418 -0.01589818
+sample estimates:
+       cor 
+-0.0612318 
+
+
+	Pearson's product-moment correlation
+
+data:  data$ATM_log2 and data$gene_log2
+t = 5.439, df = 958, p-value = 6.804e-08
+alternative hypothesis: true correlation is not equal to 0
+95 percent confidence interval:
+ 0.1110175 0.2337856
+sample estimates:
+      cor 
+0.1730737 
+
+> print(corr_MYC_MB);   print(corr_MYC_FH)
+
+	Pearson's product-moment correlation
+
+data:  data$ATM_log2 and data$gene_log2
+t = 5.3032, df = 1864, p-value = 1.274e-07
+alternative hypothesis: true correlation is not equal to 0
+95 percent confidence interval:
+ 0.07696365 0.16637303
+sample estimates:
+      cor 
+0.1219157 
+
+
+	Pearson's product-moment correlation
+
+data:  data$ATM_log2 and data$gene_log2
+t = -1.2458, df = 958, p-value = 0.2132
+alternative hypothesis: true correlation is not equal to 0
+95 percent confidence interval:
+ -0.10322583  0.02311432
+sample estimates:
+       cor 
+-0.0402165 
+
+> 
+> # Build correlation meta-analysis input table
+> meta_input_corr <- data.frame(
++   gene = rep(c("RTEL1", "CSMD1", "MYC"), each = 2),
++   study = rep(c("METABRIC", "TCGA-FH"), times = 3),
++   r = c(
++     corr_RTEL1_MB$estimate, corr_RTEL1_FH$estimate,
++     corr_CSMD1_MB$estimate, corr_CSMD1_FH$estimate,
++     corr_MYC_MB$estimate,   corr_MYC_FH$estimate
++   ),
++   n = c(
++     nrow(rtel1_mb_co), nrow(rtel1_fh_co),
++     nrow(csmd1_mb_co), nrow(csmd1_fh_co),
++     nrow(myc_mb_co),   nrow(myc_fh_co)
++   )
++ )
+> print(meta_input_corr)
+   gene    study           r    n
+1 RTEL1 METABRIC -0.03410694 1866
+2 RTEL1  TCGA-FH -0.19423780  960
+3 CSMD1 METABRIC -0.06123180 1866
+4 CSMD1  TCGA-FH  0.17307374  960
+5   MYC METABRIC  0.12191566 1866
+6   MYC  TCGA-FH -0.04021650  960
+> write_csv(meta_input_corr, "meta_input_coexpression_correlations.csv")
+                                                                                                                                                                                                                   
+> 
+> # Meta-analyze correlations using Fisher's z transformation (metacor)
+> run_gene_meta_corr <- function(data, gene_name) {
++   subset_data <- data %>% filter(gene == gene_name)
++   result <- metacor(
++     cor = subset_data$r,
++     n = subset_data$n,
++     studlab = subset_data$study,
++     sm = "ZCOR"
++   )
++   cat("\n========== ", gene_name, " (ATM-gene co-expression correlation) ==========\n")
++   print(summary(result))
++   return(result)
++ }
+> 
+> meta_RTEL1_co <- run_gene_meta_corr(meta_input_corr, "RTEL1")
+
+==========  RTEL1  (ATM-gene co-expression correlation) ==========
+             COR             95% CI %W(common) %W(random)
+METABRIC -0.0341 [-0.0794;  0.0113]       66.1       51.0
+TCGA-FH  -0.1942 [-0.2544; -0.1326]       33.9       49.0
+
+Number of studies: k = 2
+Number of observations: o = 2826
+
+                         COR             95% CI     z  p-value
+Common effect model  -0.0891 [-0.1255; -0.0524] -4.74 < 0.0001
+Random effects model -0.1134 [-0.2666;  0.0454] -1.40   0.1613
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0.0124 [0.0019; 13.4628]; tau = 0.1115 [0.0432; 3.6692]
+ I^2 = 94.0% [81.0%; 98.1%]; H = 4.09 [2.30; 7.28]
+
+Test of heterogeneity:
+     Q d.f.  p-value
+ 16.72    1 < 0.0001
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+- Fisher's z transformation of correlations
+> meta_CSMD1_co <- run_gene_meta_corr(meta_input_corr, "CSMD1")
+
+==========  CSMD1  (ATM-gene co-expression correlation) ==========
+             COR             95% CI %W(common) %W(random)
+METABRIC -0.0612 [-0.1063; -0.0159]       66.1       50.5
+TCGA-FH   0.1731 [ 0.1110;  0.2338]       33.9       49.5
+
+Number of studies: k = 2
+Number of observations: o = 2826
+
+                        COR            95% CI    z p-value
+Common effect model  0.0188 [-0.0181; 0.0557] 1.00  0.3174
+Random effects model 0.0556 [-0.1739; 0.2795] 0.47  0.6372
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0.0271 [0.0047; 28.3898]; tau = 0.1646 [0.0688; 5.3282]
+ I^2 = 97.2% [92.7%; 98.9%]; H = 5.94 [3.70; 9.52]
+
+Test of heterogeneity:
+     Q d.f.  p-value
+ 35.26    1 < 0.0001
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+- Fisher's z transformation of correlations
+> meta_MYC_co   <- run_gene_meta_corr(meta_input_corr, "MYC")
+
+==========  MYC  (ATM-gene co-expression correlation) ==========
+             COR            95% CI %W(common) %W(random)
+METABRIC  0.1219 [ 0.0770; 0.1664]       66.1       51.0
+TCGA-FH  -0.0402 [-0.1032; 0.0231]       33.9       49.0
+
+Number of studies: k = 2
+Number of observations: o = 2826
+
+                        COR            95% CI    z p-value
+Common effect model  0.0672 [ 0.0304; 0.1038] 3.57  0.0004
+Random effects model 0.0427 [-0.1162; 0.1995] 0.52  0.5997
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0.0125 [0.0019; 13.4870]; tau = 0.1116 [0.0432; 3.6725]
+ I^2 = 94.0% [81.1%; 98.1%]; H = 4.09 [2.30; 7.29]
+
+Test of heterogeneity:
+     Q d.f.  p-value
+ 16.75    1 < 0.0001
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+- Fisher's z transformation of correlations
+> 
+> png("RTEL1_coexpression_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_RTEL1_co); dev.off()
+quartz_off_screen 
+                2 
+> png("CSMD1_coexpression_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_CSMD1_co); dev.off()
+quartz_off_screen 
+                2 
+> png("MYC_coexpression_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_MYC_co); dev.off()
+quartz_off_screen 
+                2 
+> 
+> 
+> # ============================================
+> # STEP 11 - Methylation files
+> # NOTE: METABRIC = RRBS platform, FH = HM450 platform
+> # Need k-means classification into Hyper/Hypomethylated
+> # groups SEPARATELY per dataset before Cohen's d
+> # ============================================
+> 
+> load_meth_file <- function(filepath, gene_name, dataset_label) {
++   
++   data <- read_tsv(filepath, show_col_types = FALSE)
++   
++   atm_col  <- names(data)[grepl("^ATM:", names(data))][1]
++   gene_col <- names(data)[grepl(paste0("^", gene_name, ":"), names(data))][1]
++   
++   data <- data %>%
++     rename(ATM_meth = !!atm_col, gene_raw = !!gene_col) %>%
++     filter(!is.na(ATM_meth), !is.na(gene_raw))
++   
++   if (dataset_label == "FH") {
++     data <- data %>% mutate(gene_log2 = log2(gene_raw + 1))
++   } else {
++     data <- data %>% mutate(gene_log2 = gene_raw)
++   }
++   
++   # K-means classification into 2 methylation groups,
++   # done independently within this dataset
++   set.seed(123)
++   km <- kmeans(data$ATM_meth, centers = 2)
++   
++   high_cluster <- which.max(km$centers)
++   
++   data$meth_group <- ifelse(km$cluster == high_cluster,
++                              "Hypermethylated", "Hypomethylated")
++   
++   data$gene <- gene_name
++   data$dataset <- dataset_label
++   return(data)
++ }
+> 
+> rtel1_mb_meth <- load_meth_file(file.path(base_path, "METABRIC/MBdataMeth/mbRTEL1meth.txt"), "RTEL1", "METABRIC")
+                                                                                                                                                                                                                   
+> csmd1_mb_meth <- load_meth_file(file.path(base_path, "METABRIC/MBdataMeth/mbCSMD1meth.txt"), "CSMD1", "METABRIC")
+                                                                                                                                                                                                                   
+> myc_mb_meth   <- load_meth_file(file.path(base_path, "METABRIC/MBdataMeth/mbMYCmeth.txt"),   "MYC",   "METABRIC")
+                                                                                                                                                                                                                   
+> 
+> rtel1_fh_meth <- load_meth_file(file.path(base_path, "FH/FHdataMeth/fhRTEL1meth.txt"), "RTEL1", "FH")
+                                                                                                                                                                                                                   
+> csmd1_fh_meth <- load_meth_file(file.path(base_path, "FH/FHdataMeth/fhCSMD1meth.txt"), "CSMD1", "FH")
+                                                                                                                                                                                                                   
+> myc_fh_meth   <- load_meth_file(file.path(base_path, "FH/FHdataMeth/fhMYCmeth.txt"),   "MYC",   "FH")
+                                                                                                                                                                                                                   
+> 
+> table(rtel1_mb_meth$meth_group)
+
+Hypermethylated  Hypomethylated 
+            248            1098 
+> table(rtel1_fh_meth$meth_group)
+
+Hypermethylated  Hypomethylated 
+            164             492 
+> 
+> # Calculate effect sizes: Hypermethylated vs Hypomethylated
+> calc_meth_effect <- function(data) {
++   hyper <- data %>% filter(meth_group == "Hypermethylated") %>% pull(gene_log2)
++   hypo  <- data %>% filter(meth_group == "Hypomethylated")  %>% pull(gene_log2)
++   cohen.d(hypo, hyper)
++ }
+> 
+> effect_RTEL1_MB_meth <- calc_meth_effect(rtel1_mb_meth)
+> effect_RTEL1_FH_meth <- calc_meth_effect(rtel1_fh_meth)
+> effect_CSMD1_MB_meth <- calc_meth_effect(csmd1_mb_meth)
+> effect_CSMD1_FH_meth <- calc_meth_effect(csmd1_fh_meth)
+> effect_MYC_MB_meth   <- calc_meth_effect(myc_mb_meth)
+> effect_MYC_FH_meth   <- calc_meth_effect(myc_fh_meth)
+> 
+> meta_input_meth <- data.frame(
++   gene = rep(c("RTEL1", "CSMD1", "MYC"), each = 2),
++   study = rep(c("METABRIC (RRBS)", "TCGA-FH (HM450)"), times = 3),
++   effect_size = c(
++     effect_RTEL1_MB_meth$estimate, effect_RTEL1_FH_meth$estimate,
++     effect_CSMD1_MB_meth$estimate, effect_CSMD1_FH_meth$estimate,
++     effect_MYC_MB_meth$estimate,   effect_MYC_FH_meth$estimate
++   ),
++   ci_lower = c(
++     effect_RTEL1_MB_meth$conf.int[1], effect_RTEL1_FH_meth$conf.int[1],
++     effect_CSMD1_MB_meth$conf.int[1], effect_CSMD1_FH_meth$conf.int[1],
++     effect_MYC_MB_meth$conf.int[1],   effect_MYC_FH_meth$conf.int[1]
++   ),
++   ci_upper = c(
++     effect_RTEL1_MB_meth$conf.int[2], effect_RTEL1_FH_meth$conf.int[2],
++     effect_CSMD1_MB_meth$conf.int[2], effect_CSMD1_FH_meth$conf.int[2],
++     effect_MYC_MB_meth$conf.int[2],   effect_MYC_FH_meth$conf.int[2]
++   )
++ ) %>%
++   mutate(se = (ci_upper - ci_lower) / 3.92)
+> 
+> print(meta_input_meth)
+   gene           study   effect_size    ci_lower    ci_upper         se
+1 RTEL1 METABRIC (RRBS) -0.0008276576 -0.13875009  0.13709477 0.07036859
+2 RTEL1 TCGA-FH (HM450) -0.2621879917 -0.43980925 -0.08456673 0.09062309
+3 CSMD1 METABRIC (RRBS) -0.0107344704 -0.14865750  0.12718855 0.07036889
+4 CSMD1 TCGA-FH (HM450) -0.0167529077 -0.19380690  0.16030108 0.09033367
+5   MYC METABRIC (RRBS)  0.2251771585  0.08699220  0.36336211 0.07050253
+6   MYC TCGA-FH (HM450)  0.1171407811 -0.06002473  0.29430629 0.09039057
+> write_csv(meta_input_meth, "meta_input_methylation_effect_sizes.csv")
+                                                                                                                                                                                                                   
+> 
+> meta_RTEL1_meth <- run_gene_meta(meta_input_meth, "RTEL1")
+
+==========  RTEL1  (CNA: Diploid vs Amplification) ==========
+                    SMD             95% CI %W(common) %W(random)
+METABRIC (RRBS) -0.0008 [-0.1387;  0.1371]       62.4       52.4
+TCGA-FH (HM450) -0.2622 [-0.4398; -0.0846]       37.6       47.6
+
+Number of studies: k = 2
+
+                         SMD            95% CI     z p-value
+Common effect model  -0.0991 [-0.2081; 0.0098] -1.78  0.0745
+Random effects model -0.1253 [-0.3811; 0.1306] -0.96  0.3372
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0.0276 [0.0002; 34.7716]; tau = 0.1660 [0.0148; 5.8967]
+ I^2 = 80.7% [17.6%; 95.5%]; H = 2.28 [1.10; 4.71]
+
+Test of heterogeneity:
+    Q d.f. p-value
+ 5.19    1  0.0227
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+> meta_CSMD1_meth <- run_gene_meta(meta_input_meth, "CSMD1")
+
+==========  CSMD1  (CNA: Diploid vs Amplification) ==========
+                    SMD            95% CI %W(common) %W(random)
+METABRIC (RRBS) -0.0107 [-0.1487; 0.1272]       62.2       62.2
+TCGA-FH (HM450) -0.0168 [-0.1938; 0.1603]       37.8       37.8
+
+Number of studies: k = 2
+
+                         SMD            95% CI     z p-value
+Common effect model  -0.0130 [-0.1218; 0.0958] -0.23  0.8147
+Random effects model -0.0130 [-0.1218; 0.0958] -0.23  0.8147
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0 [0.0000; 0.0119]; tau = 0 [0.0000; 0.1090]
+ I^2 = 0.0%; H = 1.00
+
+Test of heterogeneity:
+    Q d.f. p-value
+ 0.00    1  0.9581
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+> meta_MYC_meth   <- run_gene_meta(meta_input_meth, "MYC")
+
+==========  MYC  (CNA: Diploid vs Amplification) ==========
+                   SMD            95% CI %W(common) %W(random)
+METABRIC (RRBS) 0.2252 [ 0.0870; 0.3634]       62.2       62.2
+TCGA-FH (HM450) 0.1171 [-0.0600; 0.2943]       37.8       37.8
+
+Number of studies: k = 2
+
+                        SMD           95% CI    z p-value
+Common effect model  0.1843 [0.0754; 0.2933] 3.32  0.0009
+Random effects model 0.1843 [0.0754; 0.2933] 3.32  0.0009
+
+Quantifying heterogeneity (with 95% CIs):
+ tau^2 = 0 [0.0000; 5.9359]; tau = 0 [0.0000; 2.4364]
+ I^2 = 0.0%; H = 1.00
+
+Test of heterogeneity:
+    Q d.f. p-value
+ 0.89    1  0.3460
+
+Details of meta-analysis methods:
+- Inverse variance method
+- Restricted maximum-likelihood estimator for tau^2
+- Q-Profile method for confidence interval of tau^2 and tau
+- Calculation of I^2 based on Q
+> 
+> png("RTEL1_methylation_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_RTEL1_meth); dev.off()
+quartz_off_screen 
+                2 
+> png("CSMD1_methylation_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_CSMD1_meth); dev.off()
+quartz_off_screen 
+                2 
+> png("MYC_methylation_forest.png", width = 7, height = 4, units = "in", res = 300)
+> forest(meta_MYC_meth); dev.off()
+quartz_off_screen 
+                2 
+> 
+> 
+> # ============================================
+> # STEP 12 - Combine ALL results into one master table
+> # ============================================
+> 
+> meth_summary <- bind_rows(
++   extract_summary(meta_RTEL1_meth, "RTEL1", "Methylation"),
++   extract_summary(meta_CSMD1_meth, "CSMD1", "Methylation"),
++   extract_summary(meta_MYC_meth,   "MYC",   "Methylation")
++ )
+> 
+> co_summary <- data.frame(
++   gene = c("RTEL1", "CSMD1", "MYC"),
++   metric = "Co-expression",
++   pooled_effect = c(meta_RTEL1_co$TE.random, meta_CSMD1_co$TE.random, meta_MYC_co$TE.random),
++   ci_lower = c(meta_RTEL1_co$lower.random, meta_CSMD1_co$lower.random, meta_MYC_co$lower.random),
++   ci_upper = c(meta_RTEL1_co$upper.random, meta_CSMD1_co$upper.random, meta_MYC_co$upper.random),
++   p_value = c(meta_RTEL1_co$pval.random, meta_CSMD1_co$pval.random, meta_MYC_co$pval.random),
++   I_squared = c(meta_RTEL1_co$I2, meta_CSMD1_co$I2, meta_MYC_co$I2),
++   heterogeneity_p = c(meta_RTEL1_co$pval.Q, meta_CSMD1_co$pval.Q, meta_MYC_co$pval.Q)
++ )
+> 
+> full_master_summary <- bind_rows(cna_summary, meth_summary, co_summary)
+> print(full_master_summary)
+   gene        metric pooled_effect    ci_lower   ci_upper    p_value I_squared heterogeneity_p
+1 RTEL1           CNA   -0.09916920 -1.59689711 1.39855871 0.89674422 0.8048303    2.360063e-02
+2 CSMD1           CNA    0.29818773 -0.66524168 1.26161715 0.54410198 0.5298476    1.447266e-01
+3   MYC           CNA   -0.62755782 -1.28547067 0.03035503 0.06154850 0.0000000    5.390032e-01
+4 RTEL1   Methylation   -0.12526968 -0.38110611 0.13056675 0.33721048 0.8072840    2.273053e-02
+5 CSMD1   Methylation   -0.01300736 -0.12181133 0.09579662 0.81474367 0.0000000    9.580830e-01
+6   MYC   Methylation    0.18431240  0.07535401 0.29327079 0.00091497 0.0000000    3.459662e-01
+7 RTEL1 Co-expression   -0.11386633 -0.27319884 0.04546618 0.16130971 0.9401876    4.334612e-05
+8 CSMD1 Co-expression    0.05568658 -0.17571881 0.28709196 0.63717250 0.9716353    2.892173e-09
+9   MYC Co-expression    0.04270452 -0.11677127 0.20218030 0.59969423 0.9402949    4.266481e-05
+> 
+> write_csv(full_master_summary, "FULL_meta_analysis_master_summary.csv")
+                                                                                                                                                                                                                   
+> save.image("full_meta_analysis_project.RData")
+> cat("\nALL meta-analyses complete and saved\n")
+
+ALL meta-analyses complete and saved
+> 
